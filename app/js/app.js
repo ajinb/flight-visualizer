@@ -33,14 +33,23 @@ const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v
 // ---- Data ------------------------------------------------------------------
 function setStatus(msg) { $('status').textContent = msg; }
 
+const titleCase = (t) => t.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase()).replace(/\bIntl\b/g, 'Intl');
+
+// Suggest airports that appear in the FAA preferred-route table (about 430 airline
+// and major GA airports) so the list opens on DEN, BOS, ATL, not on obscure strips.
+// Any other airport in the data can still be typed in.
 function fillAirportList() {
+  const seen = new Map();
+  for (const key of Object.keys(routes || {})) for (const id of key.split('-')) seen.set(id, (seen.get(id) || 0) + 1);
+  let ids = Object.keys(ctx.airports).filter((id) => seen.has(id));
+  if (ids.length < 20) ids = Object.keys(ctx.airports); // seed data: no route table yet
+  ids.sort();
   const frag = document.createDocumentFragment();
-  const ids = Object.keys(ctx.airports).sort();
   for (const id of ids) {
     const a = ctx.airports[id];
     const o = document.createElement('option');
     o.value = id;
-    o.label = `${a[0]} (${a[1]})`;
+    o.label = `${a[4] ? `${id} / ${a[4]}` : id} - ${titleCase(a[0])}, ${a[1].replace(/^(.*), ([A-Z]{2})$/, (m, c, st) => `${titleCase(c)}, ${st}`)}`;
     frag.appendChild(o);
   }
   $('airports').replaceChildren(frag);
@@ -244,6 +253,7 @@ $('copy').addEventListener('click', async () => {
   if (points) ctx.points = points;
   if (airways) ctx.airways = airways;
   if (r) routes = r;
+  fillAirportList();
   describeData();
   refreshSourceList();
 
