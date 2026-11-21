@@ -1,1 +1,1 @@
-{"source":"FAA NASR 28-Day Subscription (CSV)","cycle":"2026-10-29","built":"2026-11-21T16:36:47.425Z","airports":2507,"points":10825,"airways":1503,"routePairs":7680,"notes":{"duplicateIdsSkipped":79,"airwayPointsWithoutCoordinates":272}}
+{"source":"FAA NASR 28-Day Subscription (CSV)","cycle":"2026-10-29","built":"2026-11-21T17:28:27.019Z","airports":2507,"points":15472,"airways":1503,"routePairs":7680,"sids":249,"stars":357,"notes":{"duplicateIdsSkipped":79,"airwayPointsWithoutCoordinates":272}}

@@ -54,6 +54,8 @@ jobs:
           if (Object.keys(airways).length < 500) fail('fewer than 500 airways');
           if (!airways.J60) fail('J60 missing');
           if (Object.keys(routes).length < 1000) fail('fewer than 1000 preferred-route pairs');
+          const procs = j('procedures');
+          if (Object.keys(procs.sid).length < 100 || Object.keys(procs.star).length < 100) fail('fewer than 100 SIDs or STARs');
           console.log(meta);
           "
 

@@ -13,7 +13,7 @@ Built with AI-assisted coding.
 app/                    the static site: index.html, js/, vendor/ (Leaflet 1.9.4, BSD-2), data/
   js/route-engine.js    geometry, route expansion, A* over airways (pure, unit-tested)
   js/app.js             map and UI
-  data/                 generated JSON (airports, points, airways, routes, meta)
+  data/                 generated JSON (airports, points, airways, routes, procedures, meta)
 scripts/
   build-data.mjs        data pipeline
   nasr.mjs              CSV parsers for the FAA NASR files
@@ -24,7 +24,7 @@ scripts/
 ## Commands (Node 22+)
 
 ```sh
-npm test                 # 18 unit tests
+npm test                 # 23 unit tests
 npm run data:seed        # airports only, from OurAirports (no FAA access needed)
 npm run data:build       # full build from the FAA NASR 28-Day Subscription (needs unzip + network)
 node scripts/build-data.mjs --cycle 2026-10-29
@@ -40,6 +40,7 @@ npm run serve            # preview at http://localhost:3000
 | `FIX_BASE.csv`, `NAV_BASE.csv` | fixes and navaids |
 | `AWY_SEG_ALT.csv` | airway segments, chained into ordered point lists |
 | `PFR_SEG.csv`, `PFR_BASE.csv` | preferred routes between airport pairs |
+| `DP_RTE.csv`, `STAR_RTE.csv` | SIDs and STARs named in those routes |
 
 From the [NASR 28-Day Subscription](https://www.faa.gov/air_traffic/flight_info/aeronav/aero_data/NASR_Subscription/).
 Each group is fetched as `{dd}_{Mon}_{yyyy}_{GROUP}_CSV.zip` from `https://nfdc.faa.gov/webContent/28DaySub/extra/`
@@ -51,5 +52,5 @@ Map tiles © OpenStreetMap contributors.
 - Column names and the download URL pattern were **not verified against live FAA files** when this was written.
   The parsers fail with the list of real headers if a column is missing, so the first real run shows what to adjust in `scripts/nasr.mjs`.
 - Duplicate fix ids: first wins (navaids before fixes). Airway gaps split a segment.
-- The graph search ignores one-way airways and altitude limits. SIDs and STARs are not drawn.
-- Routes crossing the antimeridian (some Alaska flights) are not handled.
+- The graph search ignores altitude limits. NASR has no one-way airway flag, so one-way rules are ignored too.
+- SIDs and STARs are drawn along the named transition only; their altitude and speed restrictions are not modelled.

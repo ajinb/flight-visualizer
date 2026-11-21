@@ -6,6 +6,8 @@
 //   airports: { FAA_ID: [name, city, lat, lon, icao] }
 //   points:   { ID: [lat, lon] }              fixes + navaids
 //   airways:  { "J60": [ [ID, ID, ...], ... ] }  one array per continuous segment
+//   procedures: { sid: { NAME: [bodies, transitions] }, star: { ... } }
+//             chains of point ids in flying order
 
 const R_NM = 3440.065; // mean Earth radius in nautical miles
 const rad = (d) => (d * Math.PI) / 180;
@@ -35,6 +37,20 @@ export function greatCircle(a, b, n = 96) {
     const y = A * Math.cos(p1) * Math.sin(l1) + B * Math.cos(p2) * Math.sin(l2);
     const z = A * Math.sin(p1) + B * Math.sin(p2);
     out.push([deg(Math.atan2(z, Math.hypot(x, y))), deg(Math.atan2(y, x))]);
+  }
+  return out;
+}
+
+/**
+ * Shift longitudes by multiples of 360 so no step jumps more than 180 degrees.
+ * Leaflet then draws a line across the antimeridian (Alaska to Guam) instead of
+ * back across the whole map. Distances are unchanged.
+ */
+export function unwrapLons(latlngs) {
+  const out = [];
+  for (const [lat, lon] of latlngs) {
+    const prev = out.length ? out[out.length - 1][1] : lon;
+    out.push([lat, lon + 360 * Math.round((prev - lon) / 360)]);
   }
   return out;
 }
@@ -72,16 +88,44 @@ function locate(ctx, id) {
 const isAirway = (ctx, t) => !!(ctx.airways && ctx.airways[t]);
 
 /**
+ * SID points in flying order: a body, then the transition that reaches `fix`.
+ * Bodies branch per runway or airport, so take the one starting nearest `near`.
+ * A STAR is the same walk on reversed chains. Returns null if `fix` is not on it.
+ */
+function sidIds(ctx, bodies, trans, fix, near) {
+  const t = fix && trans.find((c) => c.includes(fix));
+  let cands = bodies;
+  if (t) cands = bodies.filter((b) => b[b.length - 1] === t[0]);
+  else if (fix) cands = bodies.filter((b) => b.includes(fix)).map((b) => b.slice(0, b.indexOf(fix) + 1));
+  if (fix && !t && !cands.length) return null;
+  const d = (b) => (near && locate(ctx, b[0]) ? distanceNm(near, locate(ctx, b[0])) : 0);
+  const body = [...cands].sort((x, y) => d(x) - d(y))[0] || [];
+  return [...body, ...(t ? t.slice(0, t.indexOf(fix) + 1) : [])];
+}
+
+const rev = (chains) => chains.map((c) => c.slice().reverse());
+
+function procedureIds(ctx, name, kind, fix, near) {
+  const [bodies, trans] = ctx.procedures[kind][name];
+  if (kind === 'sid') return sidIds(ctx, bodies, trans, fix, near);
+  const ids = sidIds(ctx, rev(bodies), rev(trans), fix, near);
+  return ids && ids.reverse();
+}
+
+/**
  * Expand a preferred-route token list into a drawable path.
  * Fixes and navaids become points; an airway token is replaced by every
  * point between the previous point and the next point on that airway.
- * Tokens we can't place (SIDs, STARs, unknown ids) are reported, not guessed.
+ * A SID runs toward the next point and a STAR from the previous one, along the
+ * transition that names that point. Tokens we can't place are reported, not guessed.
+ * ends = { from, to } ([lat, lon] of the airports) picks the nearest runway branch.
  */
-export function expandRoute(tokens, ctx) {
+export function expandRoute(tokens, ctx, ends = {}) {
   const path = [];
   const unresolved = [];
   const airwaysUsed = [];
   const warnings = [];
+  const proceduresUsed = [];
 
   const push = (id, kind) => {
     const p = locate(ctx, id);
@@ -113,6 +157,18 @@ export function expandRoute(tokens, ctx) {
       }
       if (found) airwaysUsed.push(t);
       else warnings.push(`${t}: ${entry} to ${exit} are not on one segment, so that leg is drawn direct`);
+    } else if (!(ctx.points && ctx.points[t]) && (ctx.procedures?.sid?.[t] || ctx.procedures?.star?.[t])) {
+      const kind = ctx.procedures.sid?.[t] ? 'sid' : 'star';
+      let fix;
+      if (kind === 'sid') {
+        let j = i + 1;
+        while (j < tokens.length && !locate(ctx, tokens[j])) j++;
+        fix = tokens[j];
+      } else fix = path.length ? path[path.length - 1].id : undefined;
+      const ids = procedureIds(ctx, t, kind, fix, kind === 'sid' ? ends.from : ends.to);
+      if (!ids) { warnings.push(`${t}: ${fix} is not on this ${kind.toUpperCase()}, so that leg is drawn direct`); continue; }
+      for (const id of ids) push(id, kind);
+      proceduresUsed.push(t);
     } else if (locate(ctx, t)) {
       const isApt = ctx.airports && ctx.airports[t] && !(ctx.points && ctx.points[t]);
       push(t, isApt ? 'airport' : 'fix');
@@ -120,7 +176,7 @@ export function expandRoute(tokens, ctx) {
       unresolved.push(t);
     }
   }
-  return { path, unresolved, airwaysUsed, warnings };
+  return { path, unresolved, airwaysUsed, proceduresUsed, warnings };
 }
 
 // ---- Airway graph --------------------------------------------------------
@@ -293,7 +349,7 @@ export function anchor(path, ctx, origin, dest) {
 /** Route from a preferred-route token string. */
 export function routeFromString(routeStr, ctx, origin, dest) {
   const tokens = routeStr.split(/\s+/).filter(Boolean);
-  const res = expandRoute(tokens, ctx);
+  const res = expandRoute(tokens, ctx, { from: locate(ctx, origin), to: locate(ctx, dest) });
   return { ...res, path: anchor(res.path, ctx, origin, dest), routeString: routeStr, method: 'preferred' };
 }
 

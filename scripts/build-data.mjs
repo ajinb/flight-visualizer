@@ -6,8 +6,9 @@
 //       great-circle layer. Needs no FAA access.
 //
 //   node scripts/build-data.mjs [--cycle YYYY-MM-DD]
-//       Downloads the FAA NASR 28-Day CSV groups (APT, FIX, NAV, AWY, PFR) and
-//       builds airports, points, airways and preferred routes.
+//       Downloads the FAA NASR 28-Day CSV groups (APT, FIX, NAV, AWY, PFR, DP,
+//       STAR) and builds airports, points, airways, preferred routes and the
+//       SIDs/STARs those routes name.
 //
 //   node scripts/build-data.mjs --local-dir ~/Downloads/nasr
 //       Same, but reads zips or extracted CSVs you already downloaded.
@@ -20,7 +21,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  parseCsv, buildAirports, buildPointIndex, buildAirways, buildRoutes,
+  parseCsv, buildAirports, buildPointIndex, buildAirways, buildRoutes, buildProcedures,
   routeTokenSet, routeEndpoints, currentCycle,
 } from './nasr.mjs';
 
@@ -38,6 +39,8 @@ const FILES = {
   NAV: ['NAV_BASE.csv'],
   AWY: ['AWY_SEG_ALT.csv'],
   PFR: ['PFR_SEG.csv', 'PFR_BASE.csv'],
+  DP: ['DP_RTE.csv'],
+  STAR: ['STAR_RTE.csv'],
 };
 
 function write(name, data) {
@@ -132,15 +135,25 @@ async function nasr() {
   const nav = await loadGroup('NAV', ctx);
   const awy = await loadGroup('AWY', ctx);
   const pfr = await loadGroup('PFR', ctx);
+  const dp = await loadGroup('DP', ctx);
+  const star = await loadGroup('STAR', ctx);
 
   const { index, duplicates } = buildPointIndex(parseCsv(fix['FIX_BASE.csv']), parseCsv(nav['NAV_BASE.csv']));
   const { airways, droppedPoints } = buildAirways(parseCsv(awy['AWY_SEG_ALT.csv']), index);
   const routes = buildRoutes(parseCsv(pfr['PFR_SEG.csv']), pfr['PFR_BASE.csv'] ? parseCsv(pfr['PFR_BASE.csv']) : []);
   const airports = buildAirports(parseCsv(apt['APT_BASE.csv']), routeEndpoints(routes));
 
-  // Only keep the points something refers to.
   const used = routeTokenSet(routes);
+  const procedures = {
+    sid: buildProcedures(parseCsv(dp['DP_RTE.csv']), 'SID', index, used),
+    star: buildProcedures(parseCsv(star['STAR_RTE.csv']), 'STAR', index, used),
+  };
+
+  // Only keep the points something refers to.
   for (const segs of Object.values(airways)) for (const s of segs) for (const id of s) used.add(id);
+  for (const group of Object.values(procedures)) {
+    for (const [bodies, trans] of Object.values(group)) for (const c of [...bodies, ...trans]) for (const id of c) used.add(id);
+  }
   const points = {};
   for (const id of used) if (index.has(id)) points[id] = index.get(id);
 
@@ -149,11 +162,13 @@ async function nasr() {
   write('points', points);
   write('airways', airways);
   write('routes', routes);
+  write('procedures', procedures);
   write('meta', {
     source: 'FAA NASR 28-Day Subscription (CSV)', cycle: localDir ? (opt('cycle') || 'local files') : cycle,
     built: new Date().toISOString(),
     airports: Object.keys(airports).length, points: Object.keys(points).length,
     airways: Object.keys(airways).length, routePairs: Object.keys(routes).length,
+    sids: Object.keys(procedures.sid).length, stars: Object.keys(procedures.star).length,
     notes: { duplicateIdsSkipped: duplicates, airwayPointsWithoutCoordinates: droppedPoints },
   });
 }
