@@ -1,6 +1,7 @@
 import {
   normalizeId, greatCircle, unwrapLons, distanceNm, buildGraph, routeFromString, routeFromGraph, routeStats,
 } from './route-engine.js';
+import { Flight, formatHours } from './flight.js';
 
 const $ = (id) => document.getElementById(id);
 const L = window.L;
@@ -120,6 +121,22 @@ function compute(from, to, source) {
   return res;
 }
 
+// ---- Flight animation ------------------------------------------------------
+const flight = new Flight(map, L, onFlightTick);
+
+function onFlightTick(t) {
+  $('play').textContent = t.playing ? '⏸ Pause' : (t.frac >= 1 ? '⟲ Fly again' : '▶ Fly');
+  $('scrub').value = String(Math.round(t.frac * 1000));
+  const parts = [`Elapsed ${formatHours(t.elapsedHours)} at 450 kt`];
+  parts.push(`Route: ${t.routeDone ? 'landed' : 'en route'} (${formatHours(t.routeHours)})`);
+  if ($('race').checked) {
+    parts.push(`Great circle: ${t.gcDone ? 'landed' : 'en route'} (${formatHours(t.gcHours)})`);
+    const diff = Math.round((t.routeHours - t.gcHours) * 60);
+    if (t.gcDone && !t.routeDone) parts.push(`Waiting ${diff} min for the route plane`);
+  }
+  $('clock').textContent = parts.join(' · ');
+}
+
 function clearLayers() {
   for (const k of Object.keys(layers)) {
     if (layers[k]) map.removeLayer(layers[k]);
@@ -152,6 +169,8 @@ function render(from, to, res) {
     pts.addLayer(m);
   });
   layers.pts = pts;
+  flight.set(drawn ? res.path.map((p) => [p.lat, p.lon]) : [A, B], [A, B], { gc: css('--gc'), route: css('--route') });
+  $('fly').hidden = false;
   syncLayerToggles();
   map.fitBounds(L.latLngBounds([gcLine[0], gcLine[gcLine.length - 1]]).pad(0.25));
 }
@@ -222,6 +241,11 @@ function run() {
 }
 
 // ---- Wiring ----------------------------------------------------------------
+$('play').addEventListener('click', () => { if (flight.playing) flight.pause(); else flight.play(); });
+$('restart').addEventListener('click', () => flight.restart());
+$('scrub').addEventListener('input', (e) => flight.seek(Number(e.target.value) / 1000));
+$('speed').addEventListener('change', (e) => flight.setSpeed(Number(e.target.value)));
+$('race').addEventListener('change', (e) => flight.setRace(e.target.checked));
 $('form').addEventListener('submit', (e) => { e.preventDefault(); run(); });
 $('swap').addEventListener('click', () => {
   const f = $('from').value;

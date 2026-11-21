@@ -46,6 +46,15 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .layers label{display:inline-flex;align-items:center;gap:6px;text-transform:none;font:14px var(--sans);letter-spacing:0;color:var(--ink);margin:0}
 .layers input{width:auto}
 .swatch{display:inline-block;width:22px;height:0;border-top:3px solid;vertical-align:middle}
+.fly{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin:0 0 10px}
+.fly[hidden]{display:none}
+.fly #scrub{flex:1;min-width:160px;width:auto;padding:0}
+.fly select{width:auto}
+.fly .chk{display:inline-flex;align-items:center;gap:6px;text-transform:none;font:14px var(--sans);letter-spacing:0;color:var(--ink);margin:0}
+.fly .chk input{width:auto}
+#clock{flex-basis:100%;font:13px var(--mono);color:var(--muted)}
+.plane{background:none;border:none}
+.plane-i{filter:drop-shadow(0 1px 2px rgba(0,0,0,.45));will-change:transform}
 #status{min-height:1.5em;color:var(--muted);font-size:14px;margin:4px 0 8px}
 #map{height:min(62vh,580px);min-height:380px;border:1px solid var(--line);border-radius:14px;background:var(--hl)}
 :root[data-theme="dark"] .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.9)}
@@ -98,6 +107,14 @@ footer{text-align:center;color:var(--muted);font-size:12px;padding:30px 16px}
   <label><input type="checkbox" id="l-gc" checked><span class="swatch" style="border-color:var(--gc);border-top-style:dashed"></span> Great circle</label>
   <label><input type="checkbox" id="l-route" checked><span class="swatch" style="border-color:var(--route)"></span> Airway route</label>
   <label><input type="checkbox" id="l-pts" checked> Waypoints</label>
+ </div>
+ <div class="fly" id="fly" role="group" aria-label="Flight animation" hidden>
+  <button type="button" id="play">▶ Fly</button>
+  <button type="button" id="restart" aria-label="Restart flight" title="Restart">⟲</button>
+  <input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Flight progress">
+  <select id="speed" aria-label="Animation speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
+  <label class="chk"><input type="checkbox" id="race" checked> Race the great circle</label>
+  <span id="clock" aria-live="off"></span>
  </div>
  <div id="status" role="status" aria-live="polite">Loading airports…</div>
  <div id="map" role="application" aria-label="Map of the selected flight path"></div>
