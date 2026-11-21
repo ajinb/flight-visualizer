@@ -19,6 +19,7 @@ scripts/
   nasr.mjs              CSV parsers for the FAA NASR files
   test/engine.test.mjs  unit tests
 .github/workflows/flight-data.yml   rebuilds data from the FAA and opens a PR
+.github/workflows/deploy.yml        copies app/ into the site repo and opens a PR there
 ```
 
 ## Commands (Node 22+)
@@ -31,6 +32,16 @@ node scripts/build-data.mjs --cycle 2026-10-29
 node scripts/build-data.mjs --local-dir ~/Downloads/nasr   # use files you downloaded yourself
 npm run serve            # preview at http://localhost:3000
 ```
+
+## Deploy
+
+This repo is the source of truth for the live copy. On every push to `main` that touches `app/`
+(or a manual run), `.github/workflows/deploy.yml` runs the tests, copies `app/` into
+`public/portfolio/aiml-501/flight-paths/` of `ajinb/cloudandsre-site`, and opens a PR there.
+Merging that PR lets the site's own deploy publish it. Don't edit the copy in the site repo; it is overwritten.
+
+Needs the repo secret `SITE_REPO_TOKEN`: a fine-grained PAT for `ajinb/cloudandsre-site` only,
+with Contents and Pull requests set to read and write.
 
 ## Data sources
 

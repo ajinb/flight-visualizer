@@ -1,0 +1,67 @@
+name: Deploy to cloudandsre.com
+
+# Copies app/ into the cloudandsre-site repo and opens a pull request there.
+# The site repo's own deploy rsyncs its whole build to the VPS with --delete,
+# so pushing to the VPS from here would be wiped on the next site deploy.
+# Merging the PR lets the site's CI and deploy carry the change live.
+#
+# Required secret: SITE_REPO_TOKEN, a fine-grained PAT scoped to
+# ajinb/cloudandsre-site only, with Contents and Pull requests set to
+# read and write.
+on:
+  push:
+    branches: [main]
+    paths: ['app/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Unit tests
+        run: npm test
+
+      - uses: actions/checkout@v5
+        with:
+          repository: ajinb/cloudandsre-site
+          token: ${{ secrets.SITE_REPO_TOKEN }}
+          path: site
+
+      - name: Copy app into the site
+        run: rsync -a --delete app/ site/public/portfolio/aiml-501/flight-paths/
+
+      - name: Open a pull request on the site repo if anything changed
+        env:
+          GH_TOKEN: ${{ secrets.SITE_REPO_TOKEN }}
+        run: |
+          if [ -z "$(git -C site status --porcelain)" ]; then
+            echo "Site copy already up to date."
+            exit 0
+          fi
+          sha="${GITHUB_SHA::7}"
+          branch="flight-paths/$sha"
+          msg="flight-paths: sync from flight-visualizer@$sha"
+          cd site
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add public/portfolio/aiml-501/flight-paths
+          git commit -m "$msg"
+          git push --set-upstream origin "$branch"
+          gh pr create -R ajinb/cloudandsre-site --base main --head "$branch" \
+            --title "$msg" \
+            --body "Automated copy of \`app/\` from ajinb/flight-visualizer@$GITHUB_SHA. Merging deploys it to cloudandsre.com/portfolio/aiml-501/flight-paths/."
