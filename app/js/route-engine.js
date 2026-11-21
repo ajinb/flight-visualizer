@@ -314,7 +314,7 @@ export function routeFromGraph(graph, ctx, origin, dest, opts = {}) {
     unresolved: [],
     warnings: [],
     airwaysUsed: [...new Set(found.via.filter(Boolean))],
-    routeString: [origin, ...tokens, dest].join(' '),
+    routeString: [origin, ...tokens, dest].filter((t, i, a) => t !== a[i - 1]).join(' '),
     method: 'graph',
   };
 }
