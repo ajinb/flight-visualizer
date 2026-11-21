@@ -1,5 +1,5 @@
 import {
-  normalizeId, greatCircle, distanceNm, buildGraph, routeFromString, routeFromGraph, routeStats,
+  normalizeId, greatCircle, unwrapLons, distanceNm, buildGraph, routeFromString, routeFromGraph, routeStats,
 } from './route-engine.js';
 
 const $ = (id) => document.getElementById(id);
@@ -14,7 +14,7 @@ async function loadJson(name) {
   }
 }
 
-const ctx = { airports: {}, points: {}, airways: {} };
+const ctx = { airports: {}, points: {}, airways: {}, procedures: { sid: {}, star: {} } };
 let routes = {};
 let meta = null;
 const graphs = {};
@@ -61,7 +61,8 @@ function describeData() {
   if (meta.source === 'seed') {
     el.textContent = `Airports: ${meta.airports.toLocaleString()} US airports from OurAirports. The FAA airway and preferred-route data has not been built yet, so only the great circle is drawn. Run the data pipeline (see the repository README) to add airways.`;
   } else {
-    el.textContent = `${meta.source}, effective ${meta.cycle}. ${meta.airports.toLocaleString()} airports, ${meta.points.toLocaleString()} fixes and navaids, ${meta.airways.toLocaleString()} airways, ${meta.routePairs.toLocaleString()} airport pairs with preferred routes. Built ${meta.built.slice(0, 10)}.`;
+    const procs = meta.sids ? `, ${meta.sids.toLocaleString()} SIDs and ${meta.stars.toLocaleString()} STARs` : '';
+    el.textContent = `${meta.source}, effective ${meta.cycle}. ${meta.airports.toLocaleString()} airports, ${meta.points.toLocaleString()} fixes and navaids, ${meta.airways.toLocaleString()} airways${procs}, ${meta.routePairs.toLocaleString()} airport pairs with preferred routes. Built ${meta.built.slice(0, 10)}.`;
   }
 }
 
@@ -133,24 +134,26 @@ function render(from, to, res) {
   const A = [a[2], a[3]];
   const B = [b[2], b[3]];
 
-  layers.gc = L.polyline(greatCircle(A, B, 96), { color: css('--gc'), weight: 3, dashArray: '8 8', opacity: 0.9 });
+  const gcLine = unwrapLons(greatCircle(A, B, 96));
+  layers.gc = L.polyline(gcLine, { color: css('--gc'), weight: 3, dashArray: '8 8', opacity: 0.9 });
   const drawn = res.path.length > 1;
-  if (drawn) layers.route = L.polyline(res.path.map((p) => [p.lat, p.lon]), { color: css('--route'), weight: 4 });
+  const list = drawn ? res.path : [{ id: from, lat: A[0], lon: A[1], kind: 'airport' }, { id: to, lat: B[0], lon: B[1], kind: 'airport' }];
+  const coords = unwrapLons(list.map((p) => [p.lat, p.lon]));
+  if (drawn) layers.route = L.polyline(coords, { color: css('--route'), weight: 4 });
 
   const pts = L.layerGroup();
-  const list = drawn ? res.path : [{ id: from, lat: A[0], lon: A[1], kind: 'airport' }, { id: to, lat: B[0], lon: B[1], kind: 'airport' }];
-  for (const p of list) {
+  list.forEach((p, i) => {
     const apt = p.kind === 'airport';
-    const m = L.circleMarker([p.lat, p.lon], {
+    const m = L.circleMarker(coords[i], {
       radius: apt ? 7 : 3.5, color: css('--route'), weight: apt ? 3 : 1.5, fillColor: apt ? css('--route') : '#fff', fillOpacity: 1,
     });
     const name = apt && ctx.airports[p.id] ? `${p.id}: ${ctx.airports[p.id][0]}` : p.id;
     m.bindTooltip(name, { direction: 'top' });
     pts.addLayer(m);
-  }
+  });
   layers.pts = pts;
   syncLayerToggles();
-  map.fitBounds(L.latLngBounds([A, B]).pad(0.25));
+  map.fitBounds(L.latLngBounds([gcLine[0], gcLine[gcLine.length - 1]]).pad(0.25));
 }
 
 function syncLayerToggles() {
@@ -175,7 +178,7 @@ function showResults(from, to, res) {
   $('method').textContent = `· ${res.method}`;
 
   const notes = [];
-  if (res.unresolved.length) notes.push(`Not placed on the map (SIDs, STARs or unknown ids): ${res.unresolved.join(', ')}`);
+  if (res.unresolved.length) notes.push(`Not placed on the map (ids or procedures missing from the FAA data): ${res.unresolved.join(', ')}`);
   for (const w of res.warnings) notes.push(w);
   $('notes').replaceChildren(...notes.map((n) => Object.assign(document.createElement('li'), { textContent: n })));
 
@@ -248,11 +251,12 @@ $('copy').addEventListener('click', async () => {
   $('go').disabled = false;
   setStatus('Pick two airports, such as DEN and BOS.');
 
-  const [m, points, airways, r] = await Promise.all([loadJson('meta'), loadJson('points'), loadJson('airways'), loadJson('routes')]);
+  const [m, points, airways, r, procs] = await Promise.all(['meta', 'points', 'airways', 'routes', 'procedures'].map(loadJson));
   meta = m;
   if (points) ctx.points = points;
   if (airways) ctx.airways = airways;
   if (r) routes = r;
+  if (procs) ctx.procedures = procs;
   fillAirportList();
   describeData();
   refreshSourceList();

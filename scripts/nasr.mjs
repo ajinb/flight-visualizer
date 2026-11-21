@@ -189,6 +189,44 @@ export function buildRoutes(segRows, baseRows = []) {
   return out;
 }
 
+/**
+ * DP_RTE.csv or STAR_RTE.csv -> { NAME: [bodies, transitions] }, each a list of
+ * point-id chains in flying order. Preferred routes name a SID by the part of
+ * DP_COMPUTER_CODE before the dot (CWARD2.CWARD -> CWARD2) and a STAR by the
+ * part of STAR_COMPUTER_CODE after it (DADES.DADES2 -> DADES2). Only names in
+ * `keep` are built; points missing from `index` are skipped.
+ */
+export function buildProcedures(rows, kind, index, keep) {
+  const what = kind === 'SID' ? 'DP_RTE' : 'STAR_RTE';
+  const code = pick(rows, [kind === 'SID' ? 'DP_COMPUTER_CODE' : 'STAR_COMPUTER_CODE'], `${what} code`);
+  const portion = pick(rows, ['ROUTE_PORTION_TYPE'], `${what} portion`);
+  const rname = pick(rows, ['ROUTE_NAME'], `${what} route name`);
+  const body = pick(rows, ['BODY_SEQ'], `${what} body sequence`);
+  const trans = pick(rows, ['TRANSITION_COMPUTER_CODE'], `${what} transition`, false);
+  const seq = pick(rows, ['POINT_SEQ'], `${what} point sequence`);
+  const point = pick(rows, ['POINT'], `${what} point`);
+
+  const chains = new Map();
+  for (const r of rows) {
+    const parts = r[code].split('.');
+    const name = kind === 'SID' ? parts[0] : parts[1];
+    if (!name || !keep.has(name)) continue;
+    const key = [name, r[portion], r[rname], r[body], trans ? r[trans] : ''].join('|');
+    if (!chains.has(key)) chains.set(key, []);
+    chains.get(key).push(r);
+  }
+  const out = {};
+  for (const [key, list] of chains) {
+    const [name, part] = key.split('|');
+    list.sort((a, b) => Number(a[seq]) - Number(b[seq]));
+    const ids = list.map((r) => r[point]).filter((id) => index.has(id))
+      .filter((id, i, a) => id !== a[i - 1]);
+    if (ids.length < 2) continue;
+    (out[name] ||= [[], []])[part === 'BODY' ? 0 : 1].push(ids);
+  }
+  return out;
+}
+
 /** Which ids do the routes mention? Used to keep points.json small. */
 export function routeTokenSet(routes) {
   const s = new Set();

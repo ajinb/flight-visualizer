@@ -129,7 +129,7 @@ footer{text-align:center;color:var(--muted);font-size:12px;padding:30px 16px}
   <h2 id="how-h">How it works</h2>
   <div class="steps">
    <div class="step"><div class="k">1</div><h3>Build the data</h3><p>A script turns the FAA's 28-day navigation data (fixes, navaids, airways, preferred routes) into small JSON files. No server runs when you visit this page.</p></div>
-   <div class="step"><div class="k">2</div><h3>Expand the route</h3><p>A preferred route like <code class="pt">GLL J60 BOS</code> is a list of tokens. Fixes become points; an airway token becomes every point between its entry and exit.</p></div>
+   <div class="step"><div class="k">2</div><h3>Expand the route</h3><p>A preferred route like <code class="pt">GLL J60 BOS</code> is a list of tokens. Fixes become points; an airway token becomes every point between its entry and exit; a SID or STAR becomes its published points.</p></div>
    <div class="step"><div class="k">3</div><h3>Or search for one</h3><p>Where no preferred route exists, A* search over the airway network finds a short path. It is a teaching model: it ignores one-way airways and altitude limits.</p></div>
   </div>
  </section>
@@ -138,12 +138,12 @@ footer{text-align:center;color:var(--muted);font-size:12px;padding:30px 16px}
   <h2 id="data-h">Data and limits</h2>
   <p id="data-meta">Loading data details…</p>
   <ul class="src">
-   <li>FAA <a href="https://www.faa.gov/air_traffic/flight_info/aeronav/aero_data/NASR_Subscription/">NASR 28-Day Subscription</a>: airports, fixes, navaids, airways.</li>
+   <li>FAA <a href="https://www.faa.gov/air_traffic/flight_info/aeronav/aero_data/NASR_Subscription/">NASR 28-Day Subscription</a>: airports, fixes, navaids, airways, SIDs and STARs.</li>
    <li>FAA <a href="https://www.fly.faa.gov/rmt/nfdc_preferred_routes_database">Preferred Routes database</a> (published through NASR): the routes shown as "preferred".</li>
    <li>Airport seed data: <a href="https://github.com/davidmegginson/ourairports-data">OurAirports</a> (public domain), used until the FAA data has been built.</li>
    <li>Map tiles © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors. Mapping library: <a href="https://leafletjs.com/">Leaflet</a> (BSD-2).</li>
   </ul>
-  <p>Departure and arrival procedures (SIDs and STARs) are not drawn; they are listed as "not placed" when a preferred route names one. Routes crossing the antimeridian (some Alaska flights) are not handled.</p>
+  <p>Departure and arrival procedures (SIDs and STARs) are drawn along the transition the route names, using the runway branch nearest the airport. Their altitude and speed restrictions are not modelled.</p>
   <p>Built with AI-assisted coding. Source and data pipeline: <a href="https://github.com/ajinb/flight-visualizer">ajinb/flight-visualizer</a>.</p>
  </section>
 </main>

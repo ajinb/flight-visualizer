@@ -5,11 +5,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  distanceNm, greatCircle, bearing, normalizeId, expandRoute, buildGraph,
+  distanceNm, greatCircle, unwrapLons, bearing, normalizeId, expandRoute, buildGraph,
   shortestAirwayPath, compressRoute, routeFromString, routeFromGraph, routeStats,
 } from '../../app/js/route-engine.js';
 import {
-  parseCsv, buildAirways, buildRoutes, buildPointIndex, buildAirports, currentCycle,
+  parseCsv, buildAirways, buildRoutes, buildPointIndex, buildAirports, buildProcedures, currentCycle,
 } from '../nasr.mjs';
 
 // Two airports 8 degrees of longitude apart on the equator-ish, joined by one
@@ -43,6 +43,14 @@ test('great circle keeps its endpoints and bows poleward', () => {
   assert.equal(pts.length, 51);
   assert.ok(Math.abs(pts[0][0] - a[0]) < 1e-6 && Math.abs(pts[50][1] - b[1]) < 1e-6);
   assert.ok(Math.max(...pts.map((p) => p[0])) > Math.max(a[0], b[0]));
+});
+
+test('unwrapLons keeps an antimeridian crossing continuous', () => {
+  // Anchorage to Guam crosses 180 degrees; raw great-circle longitudes jump from about +180 to -180.
+  const line = unwrapLons(greatCircle([61.17, -149.99], [13.48, 144.80], 60));
+  for (let i = 1; i < line.length; i++) assert.ok(Math.abs(line[i][1] - line[i - 1][1]) < 180);
+  assert.ok(Math.abs(line[60][1] - (144.80 - 360)) < 1e-6, 'Guam lands west of Anchorage, at -215.2');
+  assert.deepEqual(unwrapLons([[0, 10], [0, 20]]), [[0, 10], [0, 20]]);
 });
 
 test('normalizeId drops the K prefix on 4-letter US codes only', () => {
@@ -99,6 +107,52 @@ test('airway class filter keeps low-altitude routes out of a high search', () =>
 test('graph search returns null when nothing is in range', () => {
   const g = buildGraph(ctx, 'high');
   assert.equal(shortestAirwayPath(g, [60, 100], [0, 8]), null);
+});
+
+// A SID out of AAA with two runway branches (S1 near AAA, S9 far away) and a STAR
+// into BBB whose branches end at R1 (near BBB) and R9 (far away).
+const pctx = {
+  ...ctx,
+  points: { ...ctx.points, S1: [0, 0.3], S9: [5, 0], S2: [0, 0.6], T1: [0, 7.4], R1: [0, 7.8], R9: [5, 8] },
+  procedures: {
+    sid: { SIDA1: [[['S9', 'S2'], ['S1', 'S2']], [['S2', 'F1'], ['S2', 'N1']]] },
+    star: { STRB2: [[['T1', 'R9'], ['T1', 'R1']], [['F4', 'T1'], ['N2', 'T1']]] },
+  },
+};
+
+test('a SID follows the transition to the next fix from the nearest branch', () => {
+  const r = routeFromString('SIDA1 F1 J1 F4', pctx, 'AAA', 'BBB');
+  assert.deepEqual(r.path.map((p) => p.id), ['AAA', 'S1', 'S2', 'F1', 'F2', 'F3', 'F4', 'BBB']);
+  assert.deepEqual(r.proceduresUsed, ['SIDA1']);
+  assert.deepEqual(r.unresolved, []);
+  assert.equal(r.path[1].kind, 'sid');
+});
+
+test('a STAR starts at the previous fix and ends on the branch nearest the airport', () => {
+  const r = routeFromString('F1 J1 F4 STRB2', pctx, 'AAA', 'BBB');
+  assert.deepEqual(r.path.map((p) => p.id), ['AAA', 'F1', 'F2', 'F3', 'F4', 'T1', 'R1', 'BBB']);
+  const viaNorth = routeFromString('F1 J2 N2 STRB2', pctx, 'AAA', 'BBB');
+  assert.deepEqual(viaNorth.path.slice(-4).map((p) => p.id), ['N2', 'T1', 'R1', 'BBB']);
+});
+
+test('a procedure that does not reach the named fix is a warning, not a guess', () => {
+  const r = routeFromString('SIDA1 F5', pctx, 'AAA', 'BBB');
+  assert.deepEqual(r.path.map((p) => p.id), ['AAA', 'F5', 'BBB']);
+  assert.match(r.warnings[0], /SIDA1: F5 is not on this SID/);
+});
+
+test('buildProcedures keys SIDs and STARs the way preferred routes name them', () => {
+  const idx = new Map(['A', 'B', 'C', 'X'].map((id, i) => [id, [0, i]]));
+  const cols = 'COMPUTER_CODE,ROUTE_PORTION_TYPE,ROUTE_NAME,BODY_SEQ,TRANSITION_COMPUTER_CODE,POINT_SEQ,POINT';
+  const dp = parseCsv([
+    `DP_${cols}`,
+    'SID1.B,BODY,A-B,1,,20,B', 'SID1.B,BODY,A-B,1,,10,A', 'SID1.B,BODY,A-B,1,,15,NOCOORD',
+    'SID1.B,TRANSITION,X TRANSITION,1,SID1.X,10,B', 'SID1.B,TRANSITION,X TRANSITION,1,SID1.X,20,X',
+    'OTHER2.B,BODY,A-B,1,,10,A', 'OTHER2.B,BODY,A-B,1,,20,B',
+  ].join('\n'));
+  assert.deepEqual(buildProcedures(dp, 'SID', idx, new Set(['SID1'])), { SID1: [[['A', 'B']], [['B', 'X']]] });
+  const star = parseCsv([`STAR_${cols}`, 'B.ARR3,BODY,B-C,1,,10,B', 'B.ARR3,BODY,B-C,1,,20,C'].join('\n'));
+  assert.deepEqual(buildProcedures(star, 'STAR', idx, new Set(['ARR3'])), { ARR3: [[['B', 'C']], []] });
 });
 
 test('compressRoute collapses runs on the same airway', () => {
