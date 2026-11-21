@@ -1,0 +1,14 @@
+{
+  "name": "flight-visualizer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Great-circle path versus FAA airway route between two US airports. Educational only.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test scripts/test/engine.test.mjs",
+    "data:seed": "node scripts/build-data.mjs --seed",
+    "data:build": "node scripts/build-data.mjs",
+    "serve": "npx serve app"
+  }
+}

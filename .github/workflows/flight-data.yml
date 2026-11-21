@@ -1,0 +1,77 @@
+name: Flight path data
+
+# Rebuilds the JSON behind the app from the FAA NASR
+# 28-day subscription and opens a pull request if anything changed. Runs on
+# GitHub's runners because they can reach nfdc.faa.gov.
+#
+# The FAA publishes a new cycle every 28 days (some enroute files only every
+# 56), so a weekly check is enough; the script exits quietly when nothing moved.
+on:
+  schedule:
+    - cron: '17 6 * * 5'
+  workflow_dispatch:
+    inputs:
+      cycle:
+        description: 'Effective date YYYY-MM-DD (blank = latest on or before today)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Unit tests
+        run: node --test scripts/test/engine.test.mjs
+
+      - name: Build data from FAA NASR
+        run: |
+          if [ -n "${{ inputs.cycle }}" ]; then
+            node scripts/build-data.mjs --cycle "${{ inputs.cycle }}"
+          else
+            node scripts/build-data.mjs
+          fi
+
+      - name: Sanity-check the output
+        run: |
+          node --input-type=module -e "
+          import { readFileSync } from 'node:fs';
+          const d = 'app/data/';
+          const j = (n) => JSON.parse(readFileSync(d + n + '.json', 'utf8'));
+          const airports = j('airports'), airways = j('airways'), routes = j('routes'), meta = j('meta');
+          const fail = (m) => { console.error('Sanity check failed: ' + m); process.exit(1); };
+          if (!airports.DEN || !airports.BOS) fail('DEN or BOS missing from airports');
+          if (Object.keys(airways).length < 500) fail('fewer than 500 airways');
+          if (!airways.J60) fail('J60 missing');
+          if (Object.keys(routes).length < 1000) fail('fewer than 1000 preferred-route pairs');
+          console.log(meta);
+          "
+
+      - name: Open a pull request if the data changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- app/data; then
+            echo "No data changes."
+            exit 0
+          fi
+          branch="flight-data/$(date -u +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add app/data
+          git commit -m "data: refresh flight-path data from FAA NASR"
+          git push --set-upstream origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "data: refresh flight-path data from FAA NASR" \
+            --body "Automated rebuild of the flight-path JSON. See README.md."
